@@ -17,10 +17,6 @@ parse: ## Запустить только парсер
 parse-interactive: ## Запустить парсер в интерактивном режиме
 	docker-compose --profile interactive run --rm parser-interactive bash
 
-visualize: ## Открыть веб-визуализатор
-	@echo "Opening http://localhost:8080?data=/data/dependencies.json"
-	@xdg-open http://localhost:8080?data=/data/dependencies.json 2>/dev/null || open http://localhost:8080?data=/data/dependencies.json 2>/dev/null || echo "Please open http://localhost:8080?data=/data/dependencies.json in your browser"
-
 gephi: ## Запустить Gephi
 	docker-compose --profile gephi up -d gephi
 

@@ -1,1004 +1,129 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PHP Dependency Graph - 3D Visualization</title>
-    <style>
-        body {
-            margin: 0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #0a0a0a;
-            color: #e0e0e0;
-            overflow: hidden;
-        }
-        #container {
-            width: 100vw;
-            height: 100vh;
-            position: fixed;
-            top: 0;
-            left: 0;
-        }
-        #controls {
-            position: fixed;
-            top: 20px;
-            left: 20px;
-            background: rgba(20, 20, 30, 0.95);
-            padding: 20px;
-            border-radius: 12px;
-            z-index: 100;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            width: 280px;
-            max-height: calc(100vh - 40px);
-            overflow-y: auto;
-        }
-        #info {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: rgba(20, 20, 30, 0.95);
-            padding: 20px;
-            border-radius: 12px;
-            z-index: 100;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            max-width: 350px;
-            max-height: calc(100vh - 40px);
-            overflow-y: auto;
-        }
-        h3 {
-            margin: 0 0 15px 0;
-            color: #64ffda;
-            font-weight: 600;
-        }
-        .control-group {
-            margin-bottom: 15px;
-        }
-        label {
-            display: block;
-            margin-bottom: 5px;
-            font-size: 14px;
-            color: #b0b0b0;
-        }
-        button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            margin: 5px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 500;
-            transition: all 0.3s ease;
-            width: calc(100% - 10px);
-        }
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }
-        button:active {
-            transform: translateY(0);
-        }
-        button.danger {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        }
-        select, input {
-            width: 100%;
-            padding: 10px;
-            margin: 5px 0;
-            border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            background: rgba(30, 30, 40, 0.8);
-            color: #e0e0e0;
-            font-size: 14px;
-            box-sizing: border-box;
-        }
-        select:focus, input:focus {
-            outline: none;
-            border-color: #64ffda;
-        }
-        .legend {
-            position: fixed;
-            bottom: 20px;
-            left: 20px;
-            background: rgba(20, 20, 30, 0.95);
-            padding: 15px;
-            border-radius: 12px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            z-index: 100;
-        }
-        .legend-item {
-            display: flex;
-            align-items: center;
-            margin: 8px 0;
-            font-size: 14px;
-        }
-        .legend-color {
-            width: 16px;
-            height: 16px;
-            margin-right: 10px;
-            border-radius: 50%;
-            box-shadow: 0 0 10px currentColor;
-        }
-        #stats {
-            font-size: 14px;
-            line-height: 1.6;
-        }
-        .stat-value {
-            color: #64ffda;
-            font-weight: 600;
-        }
-        .loading {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-            z-index: 1000;
-        }
-        .spinner {
-            border: 4px solid rgba(255, 255, 255, 0.1);
-            border-left-color: #64ffda;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .file-input-wrapper {
-            position: relative;
-            overflow: hidden;
-            display: inline-block;
-            width: 100%;
-        }
-        .file-input-wrapper input[type=file] {
-            position: absolute;
-            left: 0; top: 0;
-            width: 100%; height: 100%;
-            opacity: 0;
-            cursor: pointer;
-        }
-        .file-input-button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 10px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            text-align: center;
-            display: block;
-        }
-        .slider-container { margin: 10px 0; }
-        .slider-container input[type="range"] { width: 100%; margin: 5px 0; }
-        .slider-labels {
-            display: flex;
-            justify-content: space-between;
-            font-size: 12px;
-            color: #888;
-        }
-        .badge {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 12px;
-            background: #333;
-            color: #fff;
-            margin: 2px;
-            cursor: pointer;
-        }
-        .badge.highlight {
-            background: #64ffda;
-            color: #000;
-        }
-    </style>
+    <link rel="stylesheet" href="visualizer.css">
 </head>
+
 <body>
-<div id="container"></div>
-<div id="loading" class="loading" style="display: none;">
-    <div class="spinner"></div>
-    <p style="color: #64ffda; margin-top: 20px;">Loading graph data...</p>
-</div>
-
-<div id="controls">
-    <h3>📈 Graph Information</h3>
-    <div id="stats">
-        <div>Total Classes: <span class="stat-value" id="nodeCount">0</span></div>
-        <div>Visible: <span class="stat-value" id="visibleNodeCount">0</span></div>
-        <div>Total Edges: <span class="stat-value" id="edgeCount">0</span></div>
-        <div>Namespaces: <span class="stat-value" id="nsCount">0</span></div>
+    <div id="container"></div>
+    <div id="loading" class="loading is-hidden">
+        <div class="spinner"></div>
+        <p class="loading-text">Loading graph data...</p>
     </div>
-    <h3>🎯 Graph Controls</h3>
-    <div class="control-group">
-        <label>📁 Load Data File:</label>
-        <div class="file-input-wrapper">
-            <button class="file-input-button">Choose JSON File</button>
-            <input type="file" id="fileInput" accept=".json" onchange="handleFileSelect(event)">
+
+    <div id="controls">
+        <h3>📈 Graph Information</h3>
+        <div id="stats">
+            <div>Total Classes: <span class="stat-value" id="nodeCount">0</span></div>
+            <div>Visible: <span class="stat-value" id="visibleNodeCount">0</span></div>
+            <div>Total Edges: <span class="stat-value" id="edgeCount">0</span></div>
+            <div>Namespaces: <span class="stat-value" id="nsCount">0</span></div>
         </div>
-    </div>
-    <div class="control-group">
-        <label>🔍 Search Class:</label>
-        <input type="text" id="classSearch" placeholder="Search by class name..." onkeyup="searchClass()">
-        <div id="searchResults" style="max-height: 100px; overflow-y: auto; font-size: 12px;"></div>
-    </div>
-    <div class="control-group">
-        <label>📊 Node Size Scale:</label>
-        <div class="slider-container">
-            <input type="range" id="nodeScale" min="0.1" max="3" step="0.1" value="1" onchange="updateNodeScale()">
-        </div>
-    </div>
-    <div class="control-group">
-        <label>🔗 Edge Opacity:</label>
-        <div class="slider-container">
-            <input type="range" id="edgeOpacity" min="0.1" max="1" step="0.1" value="0.4" onchange="updateEdgeOpacity()">
-        </div>
-    </div>
-    <div class="control-group">
-        <label>🎨 Layout:</label>
-        <select id="layoutType" onchange="changeLayout()">
-            <option value="force">Force-Directed (clusters)</option>
-            <option value="free" selected>Free (drag nodes)</option>
-            <option value="sphere">Sphere</option>
-            <option value="grid">Grid</option>
-            <option value="radial">Radial</option>
-        </select>
-    </div>
-    <div class="control-group">
-        <label>🔗 Show Edges:</label>
-        <select id="showEdges" onchange="toggleEdges()">
-            <option value="all">All Dependencies</option>
-            <option value="extends">Extends Only</option>
-            <option value="implements">Implements Only</option>
-            <option value="use">Use Statements Only</option>
-        </select>
-    </div>
-    <div class="control-group">
-        <label>📈 Max Dependencies (filter hubs):</label>
-        <div class="slider-container">
-            <input type="range" id="maxDeps" min="0" max="200" step="1" value="200" onchange="filterByDependencies()">
-            <div class="slider-labels"><span>0</span><span>All</span></div>
-        </div>
-    </div>
-    <button onclick="applyFilters()">🔄 Apply Filters</button>
-    <button onclick="resetView()">🏠 Reset View</button>
-    <button class="danger" onclick="clearGraph()">🗑️ Clear Graph</button>
-    <button onclick="stopForce()">⏹️ Stop Force</button>
-</div>
-
-<div id="info">
-    <h3>📈 Node Details</h3>
-    <div id="nodeInfo">Click on a node for details</div>
-</div>
-
-<div class="legend">
-    <h3>🎨 Legend</h3>
-    <div class="legend-item"><div class="legend-color" style="background: #4CAF50;"></div><span>Class</span></div>
-    <div class="legend-item"><div class="legend-color" style="background: #2196F3;"></div><span>Interface</span></div>
-    <div class="legend-item"><div class="legend-color" style="background: #FF9800;"></div><span>Trait</span></div>
-    <div class="legend-item"><div class="legend-color" style="background: #9C27B0;"></div><span>Abstract Class</span></div>
-    <div class="legend-item">
-        <div class="legend-color" style="background: #888888; box-shadow: 0 0 10px #888888;"></div>
-        <span>External Class</span>
-    </div>
-    <div style="margin-top: 10px; font-size: 12px; color: #888;">Drag nodes to rearrange<br>Force mode creates clusters</div>
-</div>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/DragControls.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS2DRenderer.js"></script>
-
-<script>
-    // --- Глобальные переменные ---
-    let scene, camera, renderer, controls, labelRenderer, dragControls;
-    let nodes = [], edges = [];
-    let graphData = null;
-    let nodeMeshes = new Map();
-    let edgeMeshes = new Map();
-    let animationId;
-    let nodeScale = 1;
-    let edgeOpacity = 0.4;
-    let currentMaxDeps = 200;
-    let currentLayout = 'free';
-    let selectedNode = null;
-    let highlightedNodes = [];
-    let forceFrameCounter = 0;
-
-    const keyState = {
-        ArrowUp: false,
-        ArrowDown: false,
-        ArrowLeft: false,
-        ArrowRight: false
-    };
-    const panSpeed = 2;   // скорость перемещения
-
-    // --- Инициализация Three.js ---
-    function init() {
-        scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0a0a0a);
-        scene.fog = new THREE.Fog(0x0a0a0a, 200, 1000);
-
-        camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000000);
-        camera.position.set(30, 20, 40);
-
-        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        document.getElementById('container').appendChild(renderer.domElement);
-
-        labelRenderer = new THREE.CSS2DRenderer();
-        labelRenderer.setSize(window.innerWidth, window.innerHeight);
-        labelRenderer.domElement.style.position = 'absolute';
-        labelRenderer.domElement.style.top = '0px';
-        labelRenderer.domElement.style.pointerEvents = 'none';
-        document.getElementById('container').appendChild(labelRenderer.domElement);
-
-        controls = new THREE.OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.05;
-
-        const ambientLight = new THREE.AmbientLight(0x404060, 0.5);
-        scene.add(ambientLight);
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        dirLight.position.set(10, 20, 10);
-        scene.add(dirLight);
-
-        window.addEventListener('resize', onWindowResize);
-        window.addEventListener('keydown', (e) => {
-            if (e.key in keyState) {
-                keyState[e.key] = true;
-                e.preventDefault();
-            }
-        });
-        window.addEventListener('keyup', (e) => {
-            if (e.key in keyState) {
-                keyState[e.key] = false;
-                e.preventDefault();
-            }
-        });
-
-        animate();
-    }
-
-    function animate() {
-        animationId = requestAnimationFrame(animate);
-        if (currentLayout === 'force') {
-            forceFrameCounter++;
-            if (forceFrameCounter % 2 === 0) {   // каждый второй кадр
-                updateForceLayout();
-            }
-        }
-
-        updateLabelVisibility();
-
-        if (keyState.ArrowLeft || keyState.ArrowRight || keyState.ArrowUp || keyState.ArrowDown) {
-            const moveDir = new THREE.Vector3();
-            // Направление взгляда камеры
-            const cameraDir = new THREE.Vector3();
-            camera.getWorldDirection(cameraDir);
-            // Боковое направление (перпендикулярно взгляду и вертикали)
-            const right = new THREE.Vector3();
-            right.crossVectors(camera.up, cameraDir).normalize();
-
-            if (keyState.ArrowLeft)  moveDir.add(right);
-            if (keyState.ArrowRight) moveDir.sub(right);
-            if (keyState.ArrowUp)    moveDir.add(cameraDir);
-            if (keyState.ArrowDown)  moveDir.sub(cameraDir);
-
-            moveDir.normalize().multiplyScalar(panSpeed);
-            // Смещаем и камеру, и цель OrbitControls
-            camera.position.add(moveDir);
-            controls.target.add(moveDir);
-        }
-
-        controls.update();
-        renderer.render(scene, camera);
-        labelRenderer.render(scene, camera);
-    }
-
-    // --- Загрузка данных и создание графа ---
-    function handleFileSelect(event) {
-        const file = event.target.files[0];
-        if (!file) return;
-        document.getElementById('loading').style.display = 'block';
-        const reader = new FileReader();
-        reader.onload = e => {
-            try {
-                graphData = JSON.parse(e.target.result);
-                visualizeGraph(graphData);
-                document.getElementById('loading').style.display = 'none';
-            } catch (ex) { alert('Invalid JSON'); document.getElementById('loading').style.display = 'none'; }
-        };
-        reader.readAsText(file);
-    }
-
-    function stopForce() {
-        if (currentLayout === 'force') {
-            currentLayout = 'free';
-            document.getElementById('layoutType').value = 'free';
-            // останавливаем скорости
-            nodes.forEach(n => n.userData.velocity.set(0,0,0));
-        }
-    }
-
-    function visualizeGraph(data) {
-        clearGraph();
-        if (!data || !data.classes || !data.dependencies) return;
-
-        const classes = data.classes;
-        const deps = data.dependencies;
-        const classArray = Object.values(classes);
-        const depArray = Object.values(deps);
-
-        const depCount = new Map();
-        depArray.forEach(d => {
-            depCount.set(d.from, (depCount.get(d.from)||0)+1);
-            depCount.set(d.to, (depCount.get(d.to)||0)+1);
-        });
-
-        let maxDeps = 0;
-        depCount.forEach(v => { if (v>maxDeps) maxDeps = v; });
-        document.getElementById('maxDeps').max = Math.max(maxDeps, 200);
-        document.getElementById('maxDeps').value = Math.max(maxDeps, 200);
-        currentMaxDeps = Math.max(maxDeps, 200);
-
-        // 1. Создаём узлы
-        classArray.forEach(info => {
-            const cnt = depCount.get(info.name) || 0;
-            createNode(info, cnt);
-        });
-
-        // 2. Сразу задаём случайные позиции
-        applyInitialPositions();
-
-        // 3. Теперь создаём рёбра – узлы уже на местах, длина > 0
-        depArray.forEach(dep => {
-            if (nodeMeshes.has(dep.from) && nodeMeshes.has(dep.to)) {
-                createEdge(dep);
-            }
-        });
-
-        // Drag controls
-        if (dragControls) dragControls.dispose();
-        dragControls = new THREE.DragControls(nodes, camera, renderer.domElement);
-        dragControls.addEventListener('dragstart', onDragStart);
-        dragControls.addEventListener('drag', onDrag);
-        dragControls.addEventListener('dragend', onDragEnd);
-
-        // Статистика
-        document.getElementById('nodeCount').textContent = classArray.length;
-        document.getElementById('edgeCount').textContent = depArray.length;
-        document.getElementById('visibleNodeCount').textContent = classArray.length;
-        const nss = new Set(classArray.map(c => c.namespace).filter(Boolean));
-        document.getElementById('nsCount').textContent = nss.size;
-
-        // Установить режим free по умолчанию
-        document.getElementById('layoutType').value = 'free';
-        currentLayout = 'free';
-        applyFilters();
-    }
-
-    function createNode(info, depCnt) {
-        const color = getClassColor(info.type);
-        let size;
-        if (info.type === 'external') {
-            size = 0.4 * nodeScale;
-        } else {
-            size = depCnt === 0 ? 0.3 : 0.3 + Math.log(depCnt + 1) * 0.5;
-            size = Math.min(size, 3) * nodeScale;
-        }
-
-        const geo = new THREE.SphereGeometry(size, 8, 8);
-        const mat = new THREE.MeshPhongMaterial({ color, emissive: color, emissiveIntensity: 0.2, shininess: 100 });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.userData = {
-            className: info.name,
-            classInfo: info,
-            depCount: depCnt,
-            originalColor: color,
-            velocity: new THREE.Vector3()
-        };
-        scene.add(mesh);
-        nodeMeshes.set(info.name, mesh);
-        nodes.push(mesh);
-
-        if (size > 0.5 && info.type !== 'external') {
-            // Лейбл
-            const div = document.createElement('div');
-            div.textContent = info.shortName;
-            const fontSize = Math.min(size * 6, 16);
-            div.style.cssText = `
-                color: #fff;
-                font-size: ${fontSize}px;
-                font-weight: bold;
-                text-shadow: 1px 1px 2px black;
-                background: rgba(0,0,0,0.7);
-                padding: 4px 8px;
-                border-radius: 4px;
-                white-space: nowrap;
-            `;
-            const label = new THREE.CSS2DObject(div);
-            label.position.y += size + 0.8;
-            mesh.add(label);
-            mesh.userData.label = label;   // сохраняем для управления видимостью
-        }
-    }
-
-    // Управление видимостью подписей по расстоянию
-    function updateLabelVisibility() {
-        const maxDist = 35;   // дальше этого расстояния подписи скрываются
-        nodes.forEach(node => {
-            if (!node.visible || !node.userData.label) return;
-            const dist = camera.position.distanceTo(node.position);
-            node.userData.label.visible = dist < maxDist;
-        });
-    }
-
-    function createEdge(dep) {
-        const from = nodeMeshes.get(dep.from);
-        const to = nodeMeshes.get(dep.to);
-        if (!from || !to) return;
-
-        const thickness = 0.2;
-        const color = getEdgeColor(dep.types);
-
-        // Цилиндр единичной высоты, потом будем масштабировать
-        const geometry = new THREE.CylinderGeometry(thickness, thickness, 1, 3);
-        const material = new THREE.MeshPhongMaterial({
-            color: color,
-            transparent: true,
-            opacity: edgeOpacity,
-            emissive: color,
-            emissiveIntensity: 0.3,
-            depthWrite: false,
-            depthTest: true
-        });
-        const cylinder = new THREE.Mesh(geometry, material);
-        cylinder.userData = { from: dep.from, to: dep.to, dependency: dep };
-        scene.add(cylinder);
-        edgeMeshes.set(dep.from + '->' + dep.to, cylinder);
-        edges.push(cylinder);
-
-        // Сразу обновим положение и масштаб
-        updateCylinderTransform(cylinder);
-    }
-
-    function applyInitialPositions() {
-        nodes.forEach(node => {
-            node.position.set(
-                (Math.random() - 0.5) * 15,
-                (Math.random() - 0.5) * 15,
-                (Math.random() - 0.5) * 15
-            );
-            node.userData.velocity.set(0, 0, 0);
-        });
-        updateAllEdges(); // было, но оставляем
-    }
-
-    // --- Силовая раскладка (магниты + резинки) ---
-    function updateForceLayout() {
-        const repStrength = 150;
-        const attrStrength = 0.1;
-        const globalGravity = 0.0001;
-        const damping = 0.95;          // увеличено затухание
-        const maxSpeed = 0.6;          // снижена максимальная скорость
-
-        const visibleNodes = nodes.filter(n => n.visible);
-        if (visibleNodes.length === 0) return;
-
-        visibleNodes.forEach(n => { n.userData.force = new THREE.Vector3(); });
-
-        // Отталкивание
-        for (let i = 0; i < visibleNodes.length; i++) {
-            for (let j = i + 1; j < visibleNodes.length; j++) {
-                const a = visibleNodes[i], b = visibleNodes[j];
-                const dir = new THREE.Vector3().subVectors(b.position, a.position);
-                let dist = dir.length() || 0.1;
-                const force = repStrength / (dist * dist);
-                dir.normalize().multiplyScalar(force);
-                a.userData.force.sub(dir);
-                b.userData.force.add(dir);
-            }
-        }
-
-        // Притяжение по рёбрам
-        edgeMeshes.forEach(cylinder => {
-            if (!cylinder.visible) return;
-            const from = nodeMeshes.get(cylinder.userData.from);
-            const to = nodeMeshes.get(cylinder.userData.to);
-            if (!from || !to || !from.visible || !to.visible) return;
-            const dir = new THREE.Vector3().subVectors(to.position, from.position);
-            const dist = dir.length();
-            if (dist < 0.1) return;
-            const force = attrStrength * dist;
-            dir.normalize().multiplyScalar(force);
-            from.userData.force.add(dir);
-            to.userData.force.sub(dir);
-        });
-
-        // Слабое глобальное притяжение
-        visibleNodes.forEach(node => {
-            const toCenter = node.position.clone().multiplyScalar(-globalGravity);
-            node.userData.force.add(toCenter);
-        });
-
-        // Применение
-        visibleNodes.forEach(node => {
-            node.userData.velocity.add(node.userData.force);
-            const speed = node.userData.velocity.length();
-            if (speed > maxSpeed) node.userData.velocity.normalize().multiplyScalar(maxSpeed);
-            node.userData.velocity.multiplyScalar(damping);
-            node.position.add(node.userData.velocity);
-        });
-
-        updateAllEdges();
-    }
-
-    function updateCylinderTransform(cylinder) {
-        const from = nodeMeshes.get(cylinder.userData.from);
-        const to = nodeMeshes.get(cylinder.userData.to);
-        if (!from || !to || !from.visible || !to.visible) {
-            cylinder.visible = false;
-            return;
-        }
-        cylinder.visible = true;
-
-        const startPos = from.position;
-        const endPos = to.position;
-        const direction = new THREE.Vector3().subVectors(endPos, startPos);
-        const length = direction.length();
-        if (length < 0.01) {
-            cylinder.visible = false;
-            return;
-        }
-
-        // Позиция – середина
-        const midPoint = new THREE.Vector3().addVectors(startPos, endPos).multiplyScalar(0.5);
-        cylinder.position.copy(midPoint);
-
-        // Масштаб по Y = длина
-        cylinder.scale.set(1, length, 1);
-
-        // Поворот
-        const quaternion = new THREE.Quaternion();
-        quaternion.setFromUnitVectors(
-            new THREE.Vector3(0, 1, 0),
-            direction.clone().normalize()
-        );
-        cylinder.quaternion.copy(quaternion);
-    }
-
-
-    function updateAllEdges() {
-        edgeMeshes.forEach(cylinder => updateCylinderTransform(cylinder));
-    }
-
-    // --- Статические раскладки ---
-    function changeLayout() {
-        currentLayout = document.getElementById('layoutType').value;
-        if (currentLayout === 'force') {
-            // Даём случайный толчок для запуска
-            nodes.forEach(n => {
-                n.userData.velocity.set(
-                    (Math.random() - 0.5) * 2,
-                    (Math.random() - 0.5) * 2,
-                    (Math.random() - 0.5) * 2
-                );
-            });
-        } else if (currentLayout !== 'free') {
-            applyStaticLayout(currentLayout);
-        }
-    }
-
-    function applyStaticLayout(layout) {
-        const visible = nodes.filter(n => n.visible);
-        if (layout === 'sphere') {
-            const r = 20;
-            visible.forEach((n, i) => {
-                const phi = Math.acos(-1 + (2*i)/visible.length);
-                const theta = Math.sqrt(visible.length*Math.PI)*phi;
-                n.position.set(r*Math.cos(theta)*Math.sin(phi), r*Math.sin(theta)*Math.sin(phi), r*Math.cos(phi));
-            });
-        } else if (layout === 'grid') {
-            const side = Math.ceil(Math.sqrt(visible.length));
-            const sp = 3;
-            visible.forEach((n, i) => {
-                n.position.set((i%side - side/2)*sp, 0, (Math.floor(i/side) - side/2)*sp);
-            });
-        } else if (layout === 'radial') {
-            const sorted = [...visible].sort((a,b)=>b.userData.depCount-a.userData.depCount);
-            const hubCnt = Math.min(5, Math.floor(visible.length*0.1));
-            sorted.slice(0, hubCnt).forEach((n,i)=>{
-                const ang = (i/hubCnt)*Math.PI*2;
-                n.position.set(Math.cos(ang)*2, 0, Math.sin(ang)*2);
-            });
-            const others = sorted.slice(hubCnt);
-            others.forEach((n,i)=>{
-                const ang = (i/others.length)*Math.PI*2;
-                const r = 5 + (i/others.length)*15;
-                n.position.set(Math.cos(ang)*r, (Math.random()-0.5)*5, Math.sin(ang)*r);
-            });
-        }
-        nodes.forEach(n => n.userData.velocity.set(0,0,0));
-        updateAllEdges();
-    }
-
-    // --- Перетаскивание ---
-    function onDragStart(event) {
-        controls.enabled = false;
-        event.object.material.emissive.setHex(0xffffff);
-        event.object.material.emissiveIntensity = 0.8;
-    }
-    function onDrag(event) {
-        updateEdgesForNode(event.object);
-    }
-    function onDragEnd(event) {
-        controls.enabled = true;
-        event.object.material.emissive = new THREE.Color(event.object.userData.originalColor);
-        event.object.material.emissiveIntensity = 0.2;
-    }
-    function updateEdgesForNode(node) {
-        edgeMeshes.forEach(cylinder => {
-            if (cylinder.userData.from === node.userData.className ||
-                cylinder.userData.to === node.userData.className) {
-                updateCylinderTransform(cylinder);
-            }
-        });
-    }
-
-    // --- Выделение узла кликом ---
-    function onMouseClick(event) {
-        const rect = renderer.domElement.getBoundingClientRect();
-        const mouse = new THREE.Vector2(
-            ((event.clientX - rect.left) / rect.width) * 2 - 1,
-            -((event.clientY - rect.top) / rect.height) * 2 + 1
-        );
-        const raycaster = new THREE.Raycaster();
-        raycaster.setFromCamera(mouse, camera);
-        const visNodes = nodes.filter(n => n.visible);
-        const intersects = raycaster.intersectObjects(visNodes);
-        if (intersects.length > 0) {
-            focusOnClass(intersects[0].object.userData.className);
-        }
-    }
-
-    function focusOnClass(className) {
-        const mesh = nodeMeshes.get(className);
-        if (!mesh) return;
-
-        // Снять предыдущую подсветку
-        if (selectedNode) {
-            selectedNode.material.emissive = new THREE.Color(selectedNode.userData.originalColor);
-            selectedNode.material.emissiveIntensity = 0.2;
-        }
-        highlightedNodes.forEach(n => {
-            n.material.emissive = new THREE.Color(n.userData.originalColor);
-            n.material.emissiveIntensity = 0.2;
-        });
-        highlightedNodes = [];
-
-        // Подсветить выбранный
-        mesh.material.emissive = new THREE.Color(0xffffff);
-        mesh.material.emissiveIntensity = 0.8;
-        selectedNode = mesh;
-
-        // Найти соседей (1 уровень)
-        const neighbors = new Set();
-        edgeMeshes.forEach(cylinder => {
-            if (cylinder.userData.from === className && cylinder.visible) {
-                const toMesh = nodeMeshes.get(cylinder.userData.to);
-                if (toMesh && toMesh.visible) neighbors.add(toMesh);
-            }
-            if (cylinder.userData.to === className && cylinder.visible) {
-                const fromMesh = nodeMeshes.get(cylinder.userData.from);
-                if (fromMesh && fromMesh.visible) neighbors.add(fromMesh);
-            }
-        });
-
-        // Подсветить соседей
-        neighbors.forEach(n => {
-            n.material.emissive = new THREE.Color(0xffaa00);
-            n.material.emissiveIntensity = 0.7;
-            highlightedNodes.push(n);
-        });
-
-        // Информация об узле
-        const info = mesh.userData;
-        const depList = Array.from(neighbors).map(n => n.userData.className).sort();
-
-        // Строим кликабельный список
-        const connectionsHtml = depList.length
-            ? depList.map(name =>
-                `<div class="conn-link" style="cursor:pointer; color:#64ffda; text-decoration:underline;margin-top: 5px"
-                  data-class="${name.replace(/"/g, '&quot;')}">${name}</div>`
-            ).join('')
-            : 'No visible connections';
-
-        document.getElementById('nodeInfo').innerHTML = `
-        <strong style="color:#64ffda">${info.className}</strong><br>
-        Type: <span style="color:#ffd700">${info.classInfo.type}</span><br>
-        Namespace: <span style="color:#64b5f6">${info.classInfo.namespace || 'global'}</span><br>
-        Connections: <span style="color:#ff9800">${info.depCount}</span><br>
-        File: <span style="color:#81c784;font-size:11px">${info.classInfo.file}</span><br>
-        Complexity: <span style="color:#ff9800">${info.classInfo.complexity}</span><br>
-        Size: <span style="color:#ce93d8">${Math.round(info.classInfo.size / 1024)} KB</span>
-
-        <details style="margin-top: 8px;word-wrap: break-word;">
-            <summary style="cursor:pointer; color:#64ffda;">Show connections (${neighbors.size})</summary>
-            <div style="max-height: 150px; overflow-y: auto; font-size: 15px; margin-top: 15px;" id="connList">
-                ${connectionsHtml}
+        <h3>🎯 Graph Controls</h3>
+        <div class="control-group">
+            <label>📁 Load Data File:</label>
+            <div class="file-input-wrapper">
+                <button class="file-input-button">Choose JSON File</button>
+                <input type="file" id="fileInput" accept=".json">
             </div>
-        </details>
-    `;
+        </div>
+        <div class="control-group">
+            <label>🔍 Search Class:</label>
+            <input type="text" id="classSearch" placeholder="Search by class name...">
+            <div id="searchResults" class="search-results"></div>
+        </div>
+        <div class="control-group">
+            <label>📊 Node Size Scale:</label>
+            <div class="slider-container">
+                <input type="range" id="nodeScale" min="0.1" max="3" step="0.1" value="1.5">
+            </div>
+        </div>
+        <div class="control-group">
+            <label>🔗 Edge Opacity:</label>
+            <div class="slider-container">
+                <input type="range" id="edgeOpacity" min="0.1" max="1" step="0.1" value="0.4">
+            </div>
+        </div>
+        <div class="control-group">
+            <label>⚡ Force Strength: <span class="stat-value" id="forceStrengthValue">2x</span></label>
+            <div class="slider-container">
+                <input type="range" id="forceStrength" min="0.5" max="3" step="0.1" value="2">
+            </div>
+        </div>
+        <div class="control-group">
+            <label>⏩ Simulation Speed: <span class="stat-value" id="simulationSpeedValue">1.5x</span></label>
+            <div class="slider-container">
+                <input type="range" id="simulationSpeed" min="0.5" max="3" step="0.1" value="1.5">
+            </div>
+        </div>
+        <div class="control-group">
+            <label>🎨 Layout:</label>
+            <select id="layoutType">
+                <option value="free" selected>Free (drag nodes)</option>
+                <option value="force">Force-Directed (clusters)</option>
+                <option value="sphere">Sphere</option>
+                <option value="grid">Grid</option>
+                <option value="radial">Radial</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label>🔗 Show Edges:</label>
+            <select id="showEdges">
+                <option value="all">All Dependencies</option>
+                <option value="extends">Extends Only</option>
+                <option value="implements">Implements Only</option>
+                <option value="use">Use Statements Only</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label>📈 Max Dependencies (filter hubs):</label>
+            <div class="slider-container">
+                <input type="range" id="maxDeps" min="0" max="200" step="1" value="200">
+                <div class="slider-labels"><span>0</span><span>All</span></div>
+            </div>
+        </div>
+        <button id="applyFiltersBtn">🔄 Apply Filters</button>
+        <button id="resetViewBtn">🏠 Reset View</button>
+        <button id="clearGraphBtn" class="danger">🗑️ Clear Graph</button>
+        <button id="stopForceBtn">⏹️ Stop Force</button>
+    </div>
 
-        // Навешиваем обработчики на ссылки
-        document.querySelectorAll('.conn-link').forEach(el => {
-            el.addEventListener('click', (e) => {
-                const targetClass = e.target.dataset.class;
-                if (targetClass) focusOnClass(targetClass);
-            });
-        });
+    <div id="info">
+        <h3>📈 Node Details</h3>
+        <div id="nodeInfo">Click on a node for details</div>
+    </div>
 
-        // Анимация камеры к узлу
-        const targetPos = mesh.position.clone();
-        const offset = new THREE.Vector3(8, 5, 8);
-        const newCamPos = targetPos.clone().add(offset);
-        const startPos = camera.position.clone();
-        const startTarget = controls.target.clone();
-        const duration = 1000;
-        const startTime = Date.now();
+    <div class="legend">
+        <h3>🎨 Legend</h3>
+        <div class="legend-item">
+            <div class="legend-color legend-class"></div><span>Class</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color legend-interface"></div><span>Interface</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color legend-trait"></div><span>Trait</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color legend-abstract"></div><span>Abstract Class</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color legend-external"></div>
+            <span>External Class</span>
+        </div>
+        <div class="legend-note">Drag nodes to rearrange<br>Force: кластеры по
+            связям, затем external</div>
+    </div>
 
-        function animateCamera() {
-            const elapsed = Date.now() - startTime;
-            const t = Math.min(elapsed / duration, 1.0);
-            const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
-            camera.position.lerpVectors(startPos, newCamPos, ease);
-            controls.target.lerpVectors(startTarget, targetPos, ease);
-            controls.update();
-            if (t < 1.0) requestAnimationFrame(animateCamera);
-        }
-        animateCamera();
-    }
-
-    // --- Фильтры и UI ---
-    function applyFilters() {
-        const edgeType = document.getElementById('showEdges').value;
-        const search = document.getElementById('classSearch').value.toLowerCase();
-        let visCnt = 0;
-        nodeMeshes.forEach((mesh, className) => {
-            const matchSearch = !search || className.toLowerCase().includes(search) ||
-                (mesh.userData.classInfo.shortName||'').toLowerCase().includes(search);
-            const matchDeps = mesh.userData.depCount <= currentMaxDeps;
-            mesh.visible = matchSearch && matchDeps;
-            if (mesh.visible) visCnt++;
-        });
-        edgeMeshes.forEach(edge => {
-            const from = nodeMeshes.get(edge.userData.from);
-            const to = nodeMeshes.get(edge.userData.to);
-            edge.visible = from && to && from.visible && to.visible &&
-                (edgeType==='all' || edge.userData.dependency.types.includes(edgeType));
-        });
-        document.getElementById('visibleNodeCount').textContent = visCnt;
-        if (currentLayout !== 'free' && currentLayout !== 'force') changeLayout();
-    }
-
-    function filterByDependencies() {
-        currentMaxDeps = parseInt(document.getElementById('maxDeps').value);
-        applyFilters();
-    }
-    function updateNodeScale() {
-        nodeScale = parseFloat(document.getElementById('nodeScale').value);
-        nodeMeshes.forEach(mesh => {
-            const cnt = mesh.userData.depCount;
-            let size = cnt===0?0.3:0.3+Math.log(cnt+1)*0.8;
-            size = Math.min(size,3)*nodeScale;
-            mesh.geometry.dispose();
-            mesh.geometry = new THREE.SphereGeometry(size,8,8);
-        });
-    }
-    function updateEdgeOpacity() {
-        edgeOpacity = parseFloat(document.getElementById('edgeOpacity').value);
-        edgeMeshes.forEach(e => e.material.opacity = edgeOpacity);
-    }
-    function toggleEdges() { applyFilters(); }
-    function searchClass() {
-        const term = document.getElementById('classSearch').value.toLowerCase();
-        const res = document.getElementById('searchResults');
-        if (term.length < 2) {
-            res.innerHTML = '';
-            return;
-        }
-        const matches = [];
-        nodeMeshes.forEach((_, name) => {
-            if (name.toLowerCase().includes(term)) matches.push(name);
-        });
-        // Очищаем и строим элементы
-        res.innerHTML = '';
-        if (matches.length === 0) {
-            res.innerHTML = '<span style="color:#888">No matches</span>';
-            return;
-        }
-        matches.slice(0, 10).forEach(name => {
-            const div = document.createElement('div');
-            div.className = 'badge highlight';
-            div.style.cursor = 'pointer';
-            div.textContent = name;
-            div.addEventListener('click', () => focusOnClass(name));
-            res.appendChild(div);
-            res.appendChild(document.createElement('br'));
-        });
-    }
-
-    function resetView() {
-        camera.position.set(30,20,40);
-        controls.reset();
-        document.getElementById('maxDeps').value = 200; currentMaxDeps=200;
-        document.getElementById('nodeScale').value = 1; nodeScale=1;
-        document.getElementById('edgeOpacity').value = 0.4; edgeOpacity=0.4;
-        document.getElementById('showEdges').value = 'all';
-        document.getElementById('classSearch').value = '';
-        document.getElementById('searchResults').innerHTML = '';
-        applyInitialPositions();
-        applyFilters();
-    }
-    function clearGraph() {
-        nodeMeshes.forEach(m => { scene.remove(m); m.geometry?.dispose(); m.material?.dispose(); });
-        nodeMeshes.clear();
-        nodes = [];
-        edgeMeshes.forEach(e => { scene.remove(e); e.geometry?.dispose(); e.material?.dispose(); });
-        edgeMeshes.clear();
-        edges = [];
-        if (dragControls) { dragControls.dispose(); dragControls=null; }
-        selectedNode = null;
-        ['nodeCount','visibleNodeCount','edgeCount','nsCount'].forEach(id => document.getElementById(id).textContent='0');
-        document.getElementById('nodeInfo').innerHTML = 'Click on a node for details';
-        highlightedNodes = [];
-    }
-    function onWindowResize() {
-        camera.aspect = window.innerWidth/window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        labelRenderer.setSize(window.innerWidth, window.innerHeight);
-    }
-    function getClassColor(t) {
-        return {
-            class: 0x4CAF50,
-            interface: 0x2196F3,
-            trait: 0xFF9800,
-            abstract_class: 0x9C27B0,
-            external: 0x888888
-        }[t] || 0x9E9E9E;
-    }
-    function getEdgeColor(types) {
-        if (types.includes('extends')) return 0xFF5252;
-        if (types.includes('implements')) return 0x448AFF;
-        return 0xBDBDBD;
-    }
-
-    // --- Старт ---
-    window.addEventListener('DOMContentLoaded', () => {
-        init();
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('data')) {
-            document.getElementById('loading').style.display = 'block';
-            fetch(urlParams.get('data'))
-                .then(r => r.json())
-                .then(d => { graphData = d; visualizeGraph(d); document.getElementById('loading').style.display = 'none'; })
-                .catch(() => document.getElementById('loading').style.display = 'none');
-        }
-        renderer.domElement.addEventListener('click', onMouseClick);
-    });
-    document.addEventListener('dragover', e => e.preventDefault());
-    document.addEventListener('drop', e => {
-        e.preventDefault();
-        const file = e.dataTransfer.files[0];
-        if (file && file.name.endsWith('.json')) {
-            document.getElementById('loading').style.display = 'block';
-            const reader = new FileReader();
-            reader.onload = ev => { graphData = JSON.parse(ev.target.result); visualizeGraph(graphData); document.getElementById('loading').style.display = 'none'; };
-            reader.readAsText(file);
-        }
-    });
-</script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/DragControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS2DRenderer.js"></script>
+    <script src="visualizer.js"></script>
 </body>
+
 </html>

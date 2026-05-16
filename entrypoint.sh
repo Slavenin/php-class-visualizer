@@ -36,6 +36,5 @@ else
         -d /app/input \
         -o /app/output/dependencies \
         --exclude "*tests*" \
-        --format json \
-        --subdirectory country/mexico/
+        --format json 
 fi
