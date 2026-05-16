@@ -1,0 +1,101 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  # Сервис парсера PHP зависимостей
+  parser:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: php-dependency-parser
+    volumes:
+      # Монтируем директорию с PHP проектом для анализа
+      - /home/max/projects/ekapusta:/app/input:ro
+      # Монтируем директорию для выходных данных
+      - ./output:/app/output
+    environment:
+      - PHP_MEMORY_LIMIT=2048M
+      - PHP_MAX_EXECUTION_TIME=300
+    # Команда по умолчанию (можно переопределить)
+    command: >
+      php /app/php_dependency_parser.php
+      -d /app/input
+      -o /app/output/dependencies
+      --format json
+    networks:
+      - dependency-network
+
+  # Сервис для запуска парсера в интерактивном режиме
+  parser-interactive:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: php-dependency-parser-interactive
+    volumes:
+      - ./symfony_project:/app/input:ro
+      - ./output:/app/output
+    environment:
+      - PHP_MEMORY_LIMIT=2G
+      - PHP_MAX_EXECUTION_TIME=600
+    stdin_open: true
+    tty: true
+    profiles:
+      - interactive
+    networks:
+      - dependency-network
+
+  # Веб-сервер для визуализации
+  web-visualizer:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: dependency-visualizer
+    ports:
+      - "8090:80"
+    volumes:
+      # Монтируем выходные данные парсера для доступа веб-интерфейса
+      - ./output:/usr/share/nginx/html/data
+      # Монтируем HTML визуализатор (опционально, для разработки)
+      - ./visualizer.html:/usr/share/nginx/html/index.html
+    environment:
+      - NGINX_HOST=localhost
+      - NGINX_PORT=80
+    depends_on:
+      - parser
+    networks:
+      - dependency-network
+
+  # Сервис для Gephi (опционально)
+  gephi:
+    image: gephi/gephi:latest
+    container_name: gephi-visualizer
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./output:/root/gephi/data
+      - gephi_data:/root/gephi
+    environment:
+      - DISPLAY=:99
+    profiles:
+      - gephi
+    networks:
+      - dependency-network
+
+  # Watchtower для автоматического обновления (опционально)
+  watchtower:
+    image: containrrr/watchtower
+    container_name: dependency-watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 86400 --cleanup
+    profiles:
+      - monitoring
+    networks:
+      - dependency-network
+
+volumes:
+  gephi_data:
+
+networks:
+  dependency-network:
+    driver: bridge
