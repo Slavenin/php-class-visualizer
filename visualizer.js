@@ -8,6 +8,7 @@ let edgeList = [];
 let activeEdges = [];
 let edgeLines = null;
 let edgeLineGeometry = null;
+let nodeMaterialCache = new Map();
 let forceSim = null;
 let forcePhase = 'full'; // 'internal' = без external, 'full' = все узлы
 let internalSimFrames = 0;
@@ -17,10 +18,13 @@ let labelVisibilityFrame = 0;
 let animationId;
 let nodeScale = 1;
 let edgeOpacity = 0.4;
-let forceStrengthScale = 1.3;
+let nodeColorMode = 'degree';
+let maxNodeDepCount = 1;
+let degreeColorCache = new Map();
+let forceStrengthScale = 1.2;
 let simulationSpeed = 1.5;
 let currentMaxDeps = 200;
-let currentLayout = 'free';
+let currentLayout = 'force';
 let selectedNode = null;
 let highlightedNodes = [];
 let pointerDownPos = null;
@@ -47,8 +51,9 @@ class ForceSimulator {
         this.alphaDecay = 0.012;
         this.k = 6;
         this.cellSize = 6;
+        this.repulsionRadius = 12;
         this.linkDistance = 20;
-        this.linkStrength = 0.035;
+        this.linkStrength = 0.038;
         this.repulsionStrength = 1;
         this.clusterStrength = 0.0025;
         this.linkForceScale = 1;
@@ -63,6 +68,7 @@ class ForceSimulator {
         this.velocities = null;
         this.forces = null;
         this.masses = null;
+        this.expansionPulse = null;
         this._grid = new Map();
     }
 
@@ -96,33 +102,36 @@ class ForceSimulator {
 
         const idealVolume = Math.max(12000, n * 620);
         this.k = Math.cbrt(idealVolume / Math.max(n, 1));
-        this.cellSize = Math.max(this.k * 1.35, 8);
         this.linkDistance = this.k * 4.9;
         if (n > 2000) {
             this.alphaDecay = 0.0045;
-            this.linkStrength = 0.04;
-            this.repulsionStrength = 1.25;
+            this.linkStrength = 0.044;
+            this.repulsionStrength = 0.72;
+            this.repulsionRadius = this.k * 3.4;
             this.clusterStrength = 0.006;
             this.centerStrength = 0.00035;
             this.velocityDecay = 0.9;
             this.maxVelocity = 3.6;
         } else if (n > 800) {
             this.alphaDecay = 0.007;
-            this.linkStrength = 0.04;
-            this.repulsionStrength = 1.18;
+            this.linkStrength = 0.046;
+            this.repulsionStrength = 0.68;
+            this.repulsionRadius = this.k * 3.7;
             this.clusterStrength = 0.005;
             this.centerStrength = 0.00045;
             this.velocityDecay = 0.895;
             this.maxVelocity = 3;
         } else {
             this.alphaDecay = 0.014;
-            this.linkStrength = 0.04;
-            this.repulsionStrength = 1.05;
+            this.linkStrength = 0.048;
+            this.repulsionStrength = 0.62;
+            this.repulsionRadius = this.k * 4;
             this.clusterStrength = 0.0035;
             this.centerStrength = 0.0008;
             this.velocityDecay = 0.88;
             this.maxVelocity = 2.2;
         }
+        this.cellSize = Math.max(this.repulsionRadius * 0.5, 8);
         this.applyUserSettings();
     }
 
@@ -131,7 +140,7 @@ class ForceSimulator {
         const speedScale = simulationSpeed || 1;
 
         this.linkStrength *= forceScale;
-        this.repulsionStrength *= forceScale;
+        this.repulsionStrength *= Math.sqrt(forceScale);
         this.clusterStrength *= forceScale;
         this.centerStrength *= Math.sqrt(forceScale);
         this.linkForceScale = forceScale;
@@ -151,12 +160,107 @@ class ForceSimulator {
         this.masses.set(masses);
     }
 
+    startExpansionPulse(strength = 1) {
+        const n = this.meshList.length;
+        if (n === 0 || !this.positions) return;
+
+        let cx = 0;
+        let cy = 0;
+        let cz = 0;
+        for (let i = 0; i < n; i++) {
+            const o = i * 3;
+            cx += this.positions[o];
+            cy += this.positions[o + 1];
+            cz += this.positions[o + 2];
+        }
+        cx /= n;
+        cy /= n;
+        cz /= n;
+
+        let maxRadius = 0;
+        let radiusSum = 0;
+        for (let i = 0; i < n; i++) {
+            const o = i * 3;
+            const dx = this.positions[o] - cx;
+            const dy = this.positions[o + 1] - cy;
+            const dz = this.positions[o + 2] - cz;
+            const r = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            maxRadius = Math.max(maxRadius, r);
+            radiusSum += r;
+        }
+
+        const avgRadius = radiusSum / n || this.k * Math.cbrt(Math.max(n, 1));
+        const reach = Math.max(maxRadius, avgRadius, this.k * Math.cbrt(Math.max(n, 1)) * 5.5);
+        const duration = Math.min(170, Math.max(80, Math.sqrt(n) * 2.4));
+        this.expansionPulse = {
+            x: cx,
+            y: cy,
+            z: cz,
+            age: 0,
+            duration,
+            speed: reach / (duration * 0.72),
+            width: Math.max(this.k * 4, avgRadius * 0.16, 8),
+            strength: Math.max(this.k * 0.16, 0.55) * strength
+        };
+        this.alpha = Math.max(this.alpha, 0.48);
+    }
+
+    _applyExpansionPulse(n) {
+        const pulse = this.expansionPulse;
+        if (!pulse) return;
+
+        const { positions, forces, masses, alpha } = this;
+        const progress = pulse.age / pulse.duration;
+        const fade = Math.max(0, 1 - progress);
+        const waveRadius = pulse.speed * pulse.age;
+        const sigma = pulse.width;
+        const sigmaSq2 = 2 * sigma * sigma;
+
+        for (let i = 0; i < n; i++) {
+            const o = i * 3;
+            let dx = positions[o] - pulse.x;
+            let dy = positions[o + 1] - pulse.y;
+            let dz = positions[o + 2] - pulse.z;
+            let dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (dist < 0.001) {
+                const a = i * 2.399963229728653;
+                dx = Math.cos(a);
+                dy = Math.sin(i * 1.171) * 0.45;
+                dz = Math.sin(a);
+                dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            }
+
+            const waveOffset = dist - waveRadius;
+            const influence = Math.exp(-(waveOffset * waveOffset) / sigmaSq2);
+            if (influence < 0.02) continue;
+
+            const invDist = 1 / dist;
+            const rx = dx * invDist;
+            const ry = dy * invDist;
+            const rz = dz * invDist;
+            const massDamping = 1 / Math.pow(Math.max(masses?.[i] || 1, 1), 0.22);
+            const f = pulse.strength * influence * fade * alpha * massDamping;
+            forces[o] += rx * f;
+            forces[o + 1] += ry * f;
+            forces[o + 2] += rz * f;
+
+            const twist = f * 0.18 * Math.sin(i * 12.9898);
+            forces[o] += -rz * twist;
+            forces[o + 2] += rx * twist;
+        }
+
+        pulse.age++;
+        if (pulse.age > pulse.duration) {
+            this.expansionPulse = null;
+        }
+    }
+
     _cellKey(cx, cy, cz) {
         return cx + ',' + cy + ',' + cz;
     }
 
     _repulsePair(i, j) {
-        const { positions, forces, masses, k, alpha, repulsionStrength } = this;
+        const { positions, forces, masses, k, alpha, repulsionStrength, repulsionRadius } = this;
         const oi = i * 3;
         const oj = j * 3;
         let ddx = positions[oi] - positions[oj];
@@ -165,8 +269,11 @@ class ForceSimulator {
         let distSq = ddx * ddx + ddy * ddy + ddz * ddz;
         if (distSq < 0.01) distSq = 0.01;
         const dist = Math.sqrt(distSq);
-        const charge = Math.sqrt(Math.max(masses?.[i] || 1, 1) * Math.max(masses?.[j] || 1, 1));
-        const f = ((k * k) / dist) * repulsionStrength * charge * alpha;
+        if (dist >= repulsionRadius) return;
+        const charge = Math.pow(Math.max(masses?.[i] || 1, 1) * Math.max(masses?.[j] || 1, 1), 0.18);
+        const softDist = Math.max(dist, k * 0.65);
+        const taper = 1 - (dist / repulsionRadius);
+        const f = ((k * k) / softDist) * repulsionStrength * charge * taper * taper * alpha;
         const fx = (ddx / dist) * f;
         const fy = (ddy / dist) * f;
         const fz = (ddz / dist) * f;
@@ -179,7 +286,7 @@ class ForceSimulator {
     }
 
     _applyRepulsion(n) {
-        const { positions, cellSize, _grid } = this;
+        const { positions, cellSize, repulsionRadius, _grid } = this;
         _grid.clear();
         for (let i = 0; i < n; i++) {
             const o = i * 3;
@@ -195,7 +302,7 @@ class ForceSimulator {
             bucket.push(i);
         }
 
-        const range = n > 900 ? 2 : 1;
+        const range = Math.ceil(repulsionRadius / cellSize);
         for (let i = 0; i < n; i++) {
             const oi = i * 3;
             const xi = positions[oi];
@@ -248,12 +355,28 @@ class ForceSimulator {
     }
 
     _applyCenter(n) {
-        const { positions, forces, centerStrength, alpha } = this;
+        const { positions, forces, masses, centerStrength, alpha } = this;
+        if (!centerStrength) return;
+
+        let cx = 0;
+        let cy = 0;
+        let cz = 0;
         for (let i = 0; i < n; i++) {
             const o = i * 3;
-            forces[o] -= positions[o] * centerStrength * alpha;
-            forces[o + 1] -= positions[o + 1] * centerStrength * alpha;
-            forces[o + 2] -= positions[o + 2] * centerStrength * alpha;
+            cx += positions[o];
+            cy += positions[o + 1];
+            cz += positions[o + 2];
+        }
+        cx /= n;
+        cy /= n;
+        cz /= n;
+
+        for (let i = 0; i < n; i++) {
+            const o = i * 3;
+            const mass = Math.max(masses?.[i] || 1, 0.25);
+            forces[o] -= cx * centerStrength * alpha * mass;
+            forces[o + 1] -= cy * centerStrength * alpha * mass;
+            forces[o + 2] -= cz * centerStrength * alpha * mass;
         }
     }
 
@@ -309,6 +432,7 @@ class ForceSimulator {
         this._applyRepulsion(n);
         this._applyLinks(n);
         this._applyClusterCohesion(n);
+        this._applyExpansionPulse(n);
         this._applyCenter(n);
 
         for (let i = 0; i < n; i++) {
@@ -509,6 +633,7 @@ function revealExternalNodes() {
     if (forceSim) {
         forceSim.resetAlpha();
         forceSim.alpha = 0.5;
+        forceSim.startExpansionPulse(0.65);
     }
     document.getElementById('visibleNodeCount').textContent = getVisibleNodes().length;
 }
@@ -538,6 +663,7 @@ function beginForceLayout() {
             forceSim.velocities[o + 1] = (Math.random() - 0.5) * 2;
             forceSim.velocities[o + 2] = (Math.random() - 0.5) * 2;
         }
+        forceSim.startExpansionPulse(0.85);
     }
     document.getElementById('visibleNodeCount').textContent = getVisibleNodes().length;
 }
@@ -563,7 +689,9 @@ function fitCameraToVisibleNodes() {
     box.getSize(size);
 
     const radius = Math.max(size.length() * 0.5, 20);
-    const distance = Math.max(45, radius / Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5) * 0.9);
+    const distanceScale = currentLayout === 'force' ? 0.45 : 0.9;
+    const minDistance = currentLayout === 'force' ? 24 : 45;
+    const distance = Math.max(minDistance, radius / Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5) * distanceScale);
     const direction = new THREE.Vector3(0.85, 0.55, 0.85).normalize();
     camera.position.copy(center).add(direction.multiplyScalar(distance));
     controls.target.copy(center);
@@ -602,20 +730,19 @@ function calculateVisibleDegrees() {
     });
 }
 
-function endpointHasVisibleBranch(mesh, edge) {
-    const name = mesh.userData.className;
-    const degree = mesh.userData.visibleDegree || 0;
-    const outDegree = mesh.userData.visibleOutDegree || 0;
-    const inDegree = mesh.userData.visibleInDegree || 0;
-
-    if (degree <= 1) return false;
-    if (edge.to === name && outDegree === 0 && inDegree <= 1) return false;
-    if (edge.from === name && outDegree <= 1 && inDegree === 0) return false;
-    return true;
+function isTerminalLink(edge, fromMesh, toMesh) {
+    return isSingleLeafEndpoint(fromMesh) || isSingleLeafEndpoint(toMesh);
 }
 
-function isTerminalLink(edge, fromMesh, toMesh) {
-    return !endpointHasVisibleBranch(fromMesh, edge) || !endpointHasVisibleBranch(toMesh, edge);
+function isSingleLeafEndpoint(mesh) {
+    const visibleDegree = mesh.userData.visibleDegree || 0;
+    return visibleDegree === 1;
+}
+
+function isLowBranchLink(fromMesh, toMesh) {
+    const fromDegree = fromMesh.userData.visibleDegree || 0;
+    const toDegree = toMesh.userData.visibleDegree || 0;
+    return Math.min(fromDegree, toDegree) <= 2;
 }
 
 function calculateNodeMass(mesh) {
@@ -627,21 +754,29 @@ function calculateNodeMass(mesh) {
 
 function calculateLinkDistance(edge, fromMesh, toMesh, baseDistance) {
     const types = edge.dependency.types || [];
+    const restDistanceScale = 0.2;
     let typeFactor = 1.12;
     if (types.includes('extends')) typeFactor = 0.78;
     else if (types.includes('implements')) typeFactor = 0.9;
 
     if (isTerminalLink(edge, fromMesh, toMesh)) {
-        return isExternalNode(fromMesh) || isExternalNode(toMesh) ? 3 : 2;
+        return isExternalNode(fromMesh) || isExternalNode(toMesh) ? 0.8 : 0.6;
     }
 
     const fromDegree = fromMesh.userData.visibleDegree || 0;
     const toDegree = toMesh.userData.visibleDegree || 0;
-    const maxDegree = Math.max(fromDegree, toDegree);
-    const hubStretch = Math.min(Math.sqrt(maxDegree) * baseDistance * 0.2, baseDistance * 1.8);
-    const externalStretch = (isExternalNode(fromMesh) || isExternalNode(toMesh)) ? baseDistance * 0.28 : 0;
+    if (isLowBranchLink(fromMesh, toMesh)) {
+        const lowDegreeFactor = isExternalNode(fromMesh) || isExternalNode(toMesh) ? 0.72 : 0.82;
+        return clamp(baseDistance * typeFactor * lowDegreeFactor * restDistanceScale, baseDistance * 0.09, baseDistance * 1.05);
+    }
 
-    return clamp(baseDistance * typeFactor + hubStretch + externalStretch, baseDistance * 0.72, baseDistance * 3.25);
+    const maxDegree = Math.max(fromDegree, toDegree);
+    const minDegree = Math.min(fromDegree, toDegree);
+    const hubStretch = Math.min(Math.sqrt(Math.min(maxDegree, minDegree * 4)) * baseDistance * 0.16, baseDistance * 1.35);
+    const externalStretch = (isExternalNode(fromMesh) || isExternalNode(toMesh)) ? baseDistance * 0.16 : 0;
+    const baseRestDistance = baseDistance * typeFactor * restDistanceScale;
+
+    return clamp(baseRestDistance + hubStretch + externalStretch, baseDistance * 0.136, baseDistance * 2.75);
 }
 
 function calculateLinkStrength(edge, fromMesh, toMesh, baseStrength) {
@@ -652,15 +787,21 @@ function calculateLinkStrength(edge, fromMesh, toMesh, baseStrength) {
     else strength *= 0.72;
 
     if (isTerminalLink(edge, fromMesh, toMesh)) {
-        return strength * 8;
+        return strength * 1.35;
+    }
+
+    if (isLowBranchLink(fromMesh, toMesh)) {
+        return strength * 1.05;
     }
 
     const degreeLoad = (fromMesh.userData.visibleDegree || 0) + (toMesh.userData.visibleDegree || 0);
-    return strength / (1 + Math.sqrt(degreeLoad) * 0.03);
+    return (strength * 1.1) / (1 + Math.sqrt(degreeLoad) * 0.025);
 }
 
 function calculateLinkMaxForceMultiplier(edge, fromMesh, toMesh) {
-    return isTerminalLink(edge, fromMesh, toMesh) ? 4 : 1;
+    if (isTerminalLink(edge, fromMesh, toMesh)) return 0.85;
+    if (isLowBranchLink(fromMesh, toMesh)) return 1.2;
+    return 1.15;
 }
 
 function rebuildForceSim() {
@@ -704,7 +845,7 @@ function init() {
     camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000000);
     camera.position.set(30, 20, 40);
 
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     document.getElementById('container').appendChild(renderer.domElement);
@@ -754,6 +895,7 @@ function bindUiEvents() {
     document.getElementById('fileInput').addEventListener('change', handleFileSelect);
     document.getElementById('classSearch').addEventListener('keyup', searchClass);
     document.getElementById('nodeScale').addEventListener('change', updateNodeScale);
+    document.getElementById('nodeColorMode').addEventListener('change', updateNodeColors);
     document.getElementById('edgeOpacity').addEventListener('change', updateEdgeOpacity);
     document.getElementById('forceStrength').addEventListener('input', () => updateForceSettings(false));
     document.getElementById('forceStrength').addEventListener('change', () => updateForceSettings(true));
@@ -764,6 +906,7 @@ function bindUiEvents() {
     document.getElementById('maxDeps').addEventListener('change', filterByDependencies);
     document.getElementById('applyFiltersBtn').addEventListener('click', applyFilters);
     document.getElementById('resetViewBtn').addEventListener('click', resetView);
+    document.getElementById('expandGraphBtn').addEventListener('click', expandGraphPulse);
     document.getElementById('clearGraphBtn').addEventListener('click', clearGraph);
     document.getElementById('stopForceBtn').addEventListener('click', stopForce);
 }
@@ -846,6 +989,86 @@ function stopForce() {
     }
 }
 
+function getNodeMaterial(color, emissiveColor = color, emissiveIntensity = 0.18) {
+    const key = `${color}:${emissiveColor}:${emissiveIntensity}`;
+    let material = nodeMaterialCache.get(key);
+    if (!material) {
+        material = new THREE.MeshLambertMaterial({
+            color,
+            emissive: emissiveColor,
+            emissiveIntensity
+        });
+        nodeMaterialCache.set(key, material);
+    }
+    return material;
+}
+
+function setNodeNormalMaterial(mesh) {
+    mesh.material = mesh.userData.baseMaterial || getNodeMaterial(mesh.userData.originalColor);
+}
+
+function setNodeEmphasis(mesh, emissiveColor, emissiveIntensity) {
+    mesh.material = getNodeMaterial(mesh.userData.originalColor, emissiveColor, emissiveIntensity);
+}
+
+function disposeNodeMaterials() {
+    nodeMaterialCache.forEach(material => material.dispose());
+    nodeMaterialCache.clear();
+}
+
+function getDegreeColor(depCnt) {
+    const count = Math.max(depCnt || 0, 0);
+    const key = `${count}:${maxNodeDepCount}`;
+    let color = degreeColorCache.get(key);
+    if (color !== undefined) return color;
+
+    const ratio = maxNodeDepCount > 0
+        ? clamp(Math.log1p(count) / Math.log1p(maxNodeDepCount), 0, 1)
+        : 0;
+    const hue = (1 - ratio) * 0.33;
+    color = new THREE.Color().setHSL(hue, 0.82, 0.46).getHex();
+    degreeColorCache.set(key, color);
+    return color;
+}
+
+function getNodeColor(info, depCnt) {
+    if (nodeColorMode === 'type') {
+        return getClassColor(info.type);
+    }
+    return getDegreeColor(depCnt);
+}
+
+function updateColorLegend() {
+    const degreeLegend = document.getElementById('degreeColorLegend');
+    const typeLegend = document.getElementById('typeColorLegend');
+    if (!degreeLegend || !typeLegend) return;
+    degreeLegend.classList.toggle('is-hidden', nodeColorMode !== 'degree');
+    typeLegend.classList.toggle('is-hidden', nodeColorMode !== 'type');
+}
+
+function updateNodeColors() {
+    nodeColorMode = document.getElementById('nodeColorMode').value;
+    updateColorLegend();
+    const previousCache = nodeMaterialCache;
+    nodeMaterialCache = new Map();
+
+    nodes.forEach(mesh => {
+        const color = getNodeColor(mesh.userData.classInfo, mesh.userData.depCount);
+        mesh.userData.originalColor = color;
+        mesh.userData.baseMaterial = getNodeMaterial(color);
+        mesh.material = mesh.userData.baseMaterial;
+    });
+
+    if (selectedNode?.visible) {
+        setNodeEmphasis(selectedNode, 0xffffff, 0.8);
+    }
+    highlightedNodes.forEach(mesh => {
+        if (mesh.visible) setNodeEmphasis(mesh, 0xffaa00, 0.7);
+    });
+
+    previousCache.forEach(material => material.dispose());
+}
+
 function visualizeGraph(data) {
     clearGraph();
     if (!data || !data.classes || !data.dependencies) return;
@@ -863,6 +1086,9 @@ function visualizeGraph(data) {
 
     let maxDeps = 0;
     depCount.forEach(v => { if (v > maxDeps) maxDeps = v; });
+    maxNodeDepCount = Math.max(maxDeps, 1);
+    degreeColorCache.clear();
+    nodeColorMode = document.getElementById('nodeColorMode')?.value || 'degree';
     document.getElementById('maxDeps').max = Math.max(maxDeps, 200);
     document.getElementById('maxDeps').value = Math.max(maxDeps, 200);
     currentMaxDeps = Math.max(maxDeps, 200);
@@ -894,30 +1120,25 @@ function visualizeGraph(data) {
     const nss = new Set(classArray.map(c => c.namespace).filter(Boolean));
     document.getElementById('nsCount').textContent = nss.size;
 
-    // Установить режим free по умолчанию
-    document.getElementById('layoutType').value = 'free';
-    currentLayout = 'free';
-    applyFilters();
+    // Force mode is the most useful default for large dependency graphs.
+    document.getElementById('layoutType').value = 'force';
+    currentLayout = 'force';
+    beginForceLayout();
 }
 
 function createNode(info, depCnt) {
-    const color = getClassColor(info.type);
-    let size;
-    if (info.type === 'external') {
-        size = 0.4 * nodeScale;
-    } else {
-        size = depCnt === 0 ? 0.3 : 0.3 + Math.log(depCnt + 1) * 1.5;
-        size = Math.min(size, 3) * nodeScale;
-    }
+    const color = getNodeColor(info, depCnt);
+    const size = calculateNodeSize(info, depCnt);
 
     const geo = new THREE.SphereGeometry(size, 8, 8);
-    const mat = new THREE.MeshPhongMaterial({ color, emissive: color, emissiveIntensity: 0.2, shininess: 100 });
+    const mat = getNodeMaterial(color);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.userData = {
         className: info.name,
         classInfo: info,
         depCount: depCnt,
         originalColor: color,
+        baseMaterial: mat,
         velocity: new THREE.Vector3(),
         deferredExternal: info.type === 'external'
     };
@@ -929,7 +1150,7 @@ function createNode(info, depCnt) {
         // Лейбл
         const div = document.createElement('div');
         div.textContent = info.shortName;
-        const fontSize = Math.min(size * 6, 16);
+        const fontSize = Math.min(size * 6, 14);
         div.style.cssText = `
         color: #fff;
         font-size: ${fontSize}px;
@@ -947,9 +1168,17 @@ function createNode(info, depCnt) {
     }
 }
 
+function calculateNodeSize(info, depCnt) {
+    if (info.type === 'external') {
+        return 0.8 * nodeScale;
+    }
+    const baseSize = depCnt === 0 ? 0.3 : 0.3 + Math.log(depCnt + 1) * 1.5;
+    return Math.min(baseSize, 3) * nodeScale;
+}
+
 // Управление видимостью подписей по расстоянию
 function updateLabelVisibility() {
-    const maxDist = 300;   // дальше этого расстояния подписи скрываются
+    const maxDist = 150;   // дальше этого расстояния подписи скрываются
     nodes.forEach(node => {
         if (!node.visible || !node.userData.label) return;
         const dist = camera.position.distanceTo(node.position);
@@ -1111,8 +1340,7 @@ function onDragStart(event) {
     nodeDragMoved = false;
     nodeDragStartPosition = event.object.position.clone();
     controls.enabled = false;
-    event.object.material.emissive.setHex(0xffffff);
-    event.object.material.emissiveIntensity = 0.8;
+    setNodeEmphasis(event.object, 0xffffff, 0.8);
 }
 function onDrag(event) {
     if (nodeDragStartPosition && event.object.position.distanceToSquared(nodeDragStartPosition) > 0.01) {
@@ -1138,8 +1366,7 @@ function onDragEnd(event) {
     nodeDragMoved = false;
     nodeDragStartPosition = null;
     controls.enabled = true;
-    event.object.material.emissive = new THREE.Color(event.object.userData.originalColor);
-    event.object.material.emissiveIntensity = 0.2;
+    setNodeNormalMaterial(event.object);
 }
 function updateEdgesForNode(node) {
     updateEdgeLinePositions();
@@ -1186,13 +1413,11 @@ function onCanvasPointerUp(event) {
 
 function clearSelection(updateInfo = true) {
     if (selectedNode) {
-        selectedNode.material.emissive = new THREE.Color(selectedNode.userData.originalColor);
-        selectedNode.material.emissiveIntensity = 0.2;
+        setNodeNormalMaterial(selectedNode);
         selectedNode = null;
     }
     highlightedNodes.forEach(n => {
-        n.material.emissive = new THREE.Color(n.userData.originalColor);
-        n.material.emissiveIntensity = 0.2;
+        setNodeNormalMaterial(n);
     });
     highlightedNodes = [];
     if (updateInfo) {
@@ -1231,8 +1456,7 @@ function focusOnClass(className) {
     clearSelection(false);
 
     // Подсветить выбранный
-    mesh.material.emissive = new THREE.Color(0xffffff);
-    mesh.material.emissiveIntensity = 0.8;
+    setNodeEmphasis(mesh, 0xffffff, 0.8);
     selectedNode = mesh;
 
     // Найти соседей (1 уровень)
@@ -1251,8 +1475,7 @@ function focusOnClass(className) {
 
     // Подсветить соседей
     neighbors.forEach(n => {
-        n.material.emissive = new THREE.Color(0xffaa00);
-        n.material.emissiveIntensity = 0.7;
+        setNodeEmphasis(n, 0xffaa00, 0.7);
         highlightedNodes.push(n);
     });
 
@@ -1379,9 +1602,7 @@ function filterByDependencies() {
 function updateNodeScale() {
     nodeScale = parseFloat(document.getElementById('nodeScale').value);
     nodeMeshes.forEach(mesh => {
-        const cnt = mesh.userData.depCount;
-        let size = cnt === 0 ? 0.3 : 0.3 + Math.log(cnt + 1) * 1.5;
-        size = Math.min(size, 3) * nodeScale;
+        const size = calculateNodeSize(mesh.userData.classInfo, mesh.userData.depCount);
         mesh.geometry.dispose();
         mesh.geometry = new THREE.SphereGeometry(size, 8, 8);
     });
@@ -1401,6 +1622,39 @@ function updateForceSettings(rebuild = true) {
         forceSim.alpha = Math.max(forceSim.alpha, 0.35);
     }
 }
+
+function resumeForceFromCurrentPositions() {
+    currentLayout = 'force';
+    document.getElementById('layoutType').value = 'force';
+    endForceLayoutDeferral();
+    internalSimFrames = 0;
+
+    const visCnt = applyNodeAndEdgeFilters();
+    rebuildEdgeLines();
+    refreshDragControls();
+    if (selectedNode && !selectedNode.visible) {
+        clearSelection();
+    }
+    document.getElementById('visibleNodeCount').textContent = visCnt;
+    rebuildForceSim();
+    if (forceSim?.velocities) {
+        forceSim.velocities.fill(0);
+    }
+}
+
+function expandGraphPulse() {
+    if (!nodes.length) return;
+    if (currentLayout !== 'force') {
+        resumeForceFromCurrentPositions();
+    } else if (!forceSim) {
+        rebuildForceSim();
+    }
+    if (forceSim) {
+        forceSim.alpha = Math.max(forceSim.alpha, 0.45);
+        forceSim.startExpansionPulse(1);
+    }
+}
+
 function toggleEdges() { applyFilters(); }
 function searchClass() {
     const term = document.getElementById('classSearch').value.toLowerCase();
@@ -1444,6 +1698,9 @@ function resetView() {
     maxDepsSlider.value = maxDepsSlider.max;
     currentMaxDeps = parseInt(maxDepsSlider.max);
     document.getElementById('nodeScale').value = 1; nodeScale = 1;
+    document.getElementById('nodeColorMode').value = 'degree';
+    nodeColorMode = 'degree';
+    updateNodeColors();
     document.getElementById('edgeOpacity').value = 0.4; edgeOpacity = 0.4;
     document.getElementById('showEdges').value = 'all';
     document.getElementById('classSearch').value = '';
@@ -1455,7 +1712,8 @@ function resetView() {
     }
 }
 function clearGraph() {
-    nodeMeshes.forEach(m => { scene.remove(m); m.geometry?.dispose(); m.material?.dispose(); });
+    nodeMeshes.forEach(m => { scene.remove(m); m.geometry?.dispose(); });
+    disposeNodeMaterials();
     nodeMeshes.clear();
     nodes = [];
     if (edgeLines) {
@@ -1469,6 +1727,8 @@ function clearGraph() {
     edgeList = [];
     activeEdges = [];
     edges = [];
+    maxNodeDepCount = 1;
+    degreeColorCache.clear();
     forceSim = null;
     forcePhase = 'full';
     internalSimFrames = 0;
@@ -1502,6 +1762,8 @@ function getEdgeColor(types) {
 // --- Старт ---
 window.addEventListener('DOMContentLoaded', () => {
     bindUiEvents();
+    nodeColorMode = document.getElementById('nodeColorMode').value;
+    updateColorLegend();
     updateForceSettings(false);
     init();
     const urlParams = new URLSearchParams(window.location.search);
