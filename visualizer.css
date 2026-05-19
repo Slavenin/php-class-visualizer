@@ -225,6 +225,18 @@ input:focus {
     font-size: 12px;
 }
 
+.legend-low-degree {
+    background: #15d615;
+}
+
+.legend-mid-degree {
+    background: #d6d615;
+}
+
+.legend-high-degree {
+    background: #d61515;
+}
+
 .legend-class {
     background: #4CAF50;
 }
