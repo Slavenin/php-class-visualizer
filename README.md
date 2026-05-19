@@ -9,7 +9,6 @@
 
 
 ![](images/1.png)
-![](images/2.png)
 
 ## Требования
 
@@ -75,10 +74,6 @@ http://localhost:8090/visualizer.html?data=data/dependencies.json
 
 Если порт изменён в `.env`, замените `8090` на значение `NGINX_PORT`.
 
-## Рекомендуемый режим
-
-**Force-Directed (clusters)**
-
 ## Типовой рабочий процесс
 
 1. Меняете `MOUNTED_FOLDER_PATH` в `.env`.
@@ -89,47 +84,36 @@ http://localhost:8090/visualizer.html?data=data/dependencies.json
 
 ## Команды
 
-```bash
-make help
-```
-
-Показать доступные команды.
-
+Собрать Docker-образы.
 ```bash
 make build
 ```
 
-Собрать Docker-образы.
-
+Запустить парсер для проекта из `MOUNTED_FOLDER_PATH`.
 ```bash
 make parse
-```
-
-Запустить парсер для проекта из `MOUNTED_FOLDER_PATH`.
-
-```bash
-make run
 ```
 
 Запустить веб-визуализатор на `NGINX_PORT`.
 
 ```bash
-make logs
+make run
 ```
 
 Показать логи контейнеров.
+```bash
+make logs
+```
 
+Остановить контейнеры.
 ```bash
 make stop
 ```
 
-Остановить контейнеры.
-
+Остановить контейнеры и очистить `output/*`.
 ```bash
 make clean
 ```
-
-Остановить контейнеры и очистить `output/*`.
 
 ## Ручной запуск парсера
 
@@ -144,53 +128,47 @@ docker-compose run --rm parser php /app/php_dependency_parser.php \
 
 Полезные опции:
 
+Создать `dependencies.json`.
 ```bash
 --format json
 ```
 
-Создать `dependencies.json`.
-
+Создать CSV-файлы для Gephi.
 ```bash
 --format gephi
 ```
 
-Создать CSV-файлы для Gephi.
-
+Сканировать только поддиректорию `src`.
 ```bash
 -s src
 ```
 
-Сканировать только поддиректорию `src`.
-
+Исключить файлы или классы по маске.
 ```bash
 -e '*Test*' -e '*test*'
 ```
 
-Исключить файлы или классы по маске.
-
+Включить только файлы по маске.
 ```bash
 -i '*Controller.php'
 ```
 
-Включить только файлы по маске.
-
+Добавить директории в список исключений.
 ```bash
 --exclude-dirs var,node_modules
 ```
 
-Добавить директории в список исключений.
 
+Не добавлять классы внешних зависимостей в граф.
 ```bash
 --exclude-external
 ```
 
-Не добавлять external-классы в граф.
-
+Считать указанный namespace доменным. Это влияет на группировку внешних зависимостей.
 ```bash
 --domain-namespace 'App'
 ```
 
-Считать указанный namespace доменным. Это влияет на группировку external-зависимостей.
 
 ## Визуализатор
 
@@ -206,6 +184,7 @@ http://localhost:8090/visualizer.html?data=data/dependencies.json
 
 - `Search Class` - поиск класса по имени.
 - `Node Size Scale` - масштаб размеров узлов.
+- `Node Colors` - принцип раскрашивания узлов (по количеству связей или по типу узла)
 - `Edge Opacity` - прозрачность связей.
 - `Force Strength` - сила физической раскладки.
 - `Simulation Speed` - скорость симуляции.
@@ -214,12 +193,14 @@ http://localhost:8090/visualizer.html?data=data/dependencies.json
 - `Max Dependencies` - фильтр для скрытия слишком связных узлов.
 - `Apply Filters` - применить текущие фильтры.
 - `Reset View` - сбросить фильтры, камеру и вернуть режим `Free`.
+- `Expand Pulse` - создать импульс расширения, который растянет граф в пространстве
+- `Clear Graph` - очистить сцену
 - `Stop Force` - остановить force-симуляцию и оставить текущие позиции.
 
 ### Режимы раскладки
 
-- `Free` - свободный режим, узлы можно перетаскивать.
 - `Force-Directed` - физическая раскладка с кластеризацией.
+- `Free` - свободный режим, узлы можно перетаскивать.
 - `Sphere` - раскладка по сфере.
 - `Grid` - сетка.
 - `Radial` - радиальная раскладка вокруг наиболее связных классов.
@@ -231,6 +212,7 @@ http://localhost:8090/visualizer.html?data=data/dependencies.json
 - Перетаскивание узла меняет его позицию.
 - Вращение сцены выполняется мышью через OrbitControls.
 - Колёсико мыши приближает и отдаляет камеру.
+- Движение по сцене осуществляется с помощью стрелочек
 
 ## Где лежат результаты
 
@@ -297,17 +279,3 @@ PHP_MAX_EXECUTION_TIME=1200
 - `Show Edges`, чтобы оставить только нужный тип связей.
 - `Stop Force`, чтобы остановить симуляцию после подходящей раскладки.
 - `Simulation Speed` и `Force Strength`, чтобы подобрать комфортную физику.
-
-## Структура проекта
-
-```text
-php_dependency_parser.php  PHP-парсер зависимостей
-visualizer.html            HTML-разметка 3D-визуализатора
-visualizer.css             стили визуализатора
-visualizer.js              логика визуализатора
-docker-compose.yml         Docker Compose конфигурация
-Dockerfile                 контейнер парсера
-Dockerfile.web             контейнер nginx для визуализатора
-entrypoint.sh              entrypoint парсера
-output/                    результаты анализа
-```

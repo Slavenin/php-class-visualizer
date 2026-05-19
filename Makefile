@@ -2,14 +2,11 @@
 
 .PHONY: help build run parse visualize clean logs
 
-help: ## Показать справку
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
-
 build: ## Собрать Docker образы
 	docker-compose build
 
 run: ## Запустить все сервисы
-	docker-compose up -d
+	docker-compose up -d web-visualizer
 
 parse: ## Запустить только парсер
 	docker-compose run --rm parser
