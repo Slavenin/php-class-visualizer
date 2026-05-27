@@ -1542,9 +1542,13 @@ function applyNodeAndEdgeFilters() {
     const edgeType = document.getElementById('showEdges').value;
     const search = document.getElementById('classSearch').value.toLowerCase();
     let visCnt = 0;
+    const regex = new RegExp(search, 'gi');
+
     nodeMeshes.forEach((mesh, className) => {
-        const matchSearch = !search || className.toLowerCase().includes(search) ||
-            (mesh.userData.classInfo.shortName || '').toLowerCase().includes(search);
+        const matchSearch = !search
+            || regex.test(className)
+            || regex.test((mesh.userData.classInfo.shortName || ''));
+
         const matchDeps = mesh.userData.depCount <= currentMaxDeps;
         let visible = matchSearch && matchDeps;
         if (visible && mesh.userData.deferredExternal && currentLayout === 'force' && forcePhase === 'internal') {
@@ -1656,7 +1660,7 @@ function expandGraphPulse() {
 }
 
 function toggleEdges() { applyFilters(); }
-function searchClass() {
+function searchClass(e) {
     const term = document.getElementById('classSearch').value.toLowerCase();
     const res = document.getElementById('searchResults');
     if (term.length < 2) {
@@ -1665,7 +1669,8 @@ function searchClass() {
     }
     const matches = [];
     nodeMeshes.forEach((_, name) => {
-        if (name.toLowerCase().includes(term)) matches.push(name);
+        const regex = new RegExp(term, 'gi');
+        if (regex.test(name)) matches.push(name);
     });
     // Очищаем и строим элементы
     res.innerHTML = '';
@@ -1682,6 +1687,8 @@ function searchClass() {
         res.appendChild(div);
         res.appendChild(document.createElement('br'));
     });
+
+    e.stopPropagation();
 }
 
 function resetView() {

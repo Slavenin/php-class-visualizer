@@ -29,7 +29,7 @@ class PHPDependencyParser
 
     private array $excludePatterns = [];
     private array $includeOnlyPatterns = [];
-    private ?string $scanSubdirectory = null;
+    private ?array $scanSubdirectories = null;
     private array $excludeDirs = ['vendor', 'node_modules', '.git', 'var', 'cache'];
     private array $domainNamespaces = [];
     private array $options = [];
@@ -40,7 +40,7 @@ class PHPDependencyParser
 
         $this->excludePatterns = $options['exclude'] ?? [];
         $this->includeOnlyPatterns = $options['include_only'] ?? [];
-        $this->scanSubdirectory = $options['subdirectory'] ?? null;
+        $this->scanSubdirectories = $options['subdirectory'] ?? null;
         $this->includeNative = $options['include_native'] ?? false;
         $this->domainNamespaces = $this->normalizeDomainNamespaces($options['domain_namespaces'] ?? []);
 
@@ -69,7 +69,14 @@ class PHPDependencyParser
 
     public function parse(): array
     {
-        $this->scanDirectory($this->getScanDirectory());
+        if ([] !== $this->scanSubdirectories) {
+            foreach ($this->scanSubdirectories as $dir) {
+                $this->scanDirectory($this->getScanDirectory($dir));
+            }
+        } else {
+            $this->scanDirectory($this->getScanDirectory($this->rootDir));
+        }
+
         $this->analyzeDependencies();
         $this->filterExcludedDependencies();
 
@@ -89,7 +96,7 @@ class PHPDependencyParser
             'config' => [
                 'exclude_patterns' => $this->excludePatterns,
                 'include_only_patterns' => $this->includeOnlyPatterns,
-                'scan_subdirectory' => $this->scanSubdirectory,
+                'scan_subdirectories' => $this->scanSubdirectories,
                 'exclude_dirs' => $this->excludeDirs,
                 'exclude_external' => $this->options['exclude_external'] ?? false,
                 'domain_namespaces' => $this->domainNamespaces,
@@ -225,16 +232,14 @@ class PHPDependencyParser
         }
     }
 
-    private function getScanDirectory(): string
+    private function getScanDirectory(string $subDir): string
     {
-        if ($this->scanSubdirectory) {
-            $fullPath = $this->rootDir . '/' . ltrim($this->scanSubdirectory, '/');
-            if (!is_dir($fullPath)) {
-                throw new RuntimeException("Subdirectory not found: {$this->scanSubdirectory}");
-            }
-            return $fullPath;
+        $fullPath = $this->rootDir . '/' . ltrim($subDir, '/');
+        if (!is_dir($fullPath)) {
+            throw new RuntimeException("Subdirectory not found: {$subDir}");
         }
-        return $this->rootDir;
+
+        return $fullPath;
     }
 
     private function scanDirectory(string $dir): void
@@ -835,7 +840,7 @@ class PHPDependencyParser
             'filtered' => [
                 'exclude_patterns' => $this->excludePatterns,
                 'include_only_patterns' => $this->includeOnlyPatterns,
-                'scan_subdirectory' => $this->scanSubdirectory
+                'scan_subdirectories' => $this->scanSubdirectories
             ]
         ];
     }
@@ -926,7 +931,7 @@ if (PHP_SAPI === 'cli') {
         echo "Optional:\n";
         echo "  -o, --output <prefix>      Output file prefix (default: dependencies)\n";
         echo "  --format <json|gephi>      Output format (default: json)\n";
-        echo "  -s, --subdirectory <path>  Scan only specific subdirectory\n";
+        echo "  -s, --subdirectory <path>  Scan only specific subdirectories\n";
         echo "  -e, --exclude <pattern>    Exclude file paths and class names matching pattern (repeatable)\n";
         echo "  -i, --include-only <pat>   Include only files matching pattern (repeatable)\n";
         echo "  --exclude-dirs <dirs>      Additional dirs to exclude (comma-separated)\n";
@@ -964,7 +969,7 @@ if (PHP_SAPI === 'cli') {
     $parserOptions = [];
 
     if (isset($options['s']) || isset($options['subdirectory'])) {
-        $parserOptions['subdirectory'] = $options['s'] ?? $options['subdirectory'];
+        $parserOptions['subdirectory'] = (array)($options['s'] ?? $options['subdirectory']);
     }
 
     if (isset($options['e']) || isset($options['exclude'])) {
@@ -1001,7 +1006,7 @@ if (PHP_SAPI === 'cli') {
     echo "=====================\n";
     echo "Directory: $dir\n";
     if ($parserOptions['subdirectory'] ?? null) {
-        echo "Subdirectory: {$parserOptions['subdirectory']}\n";
+        echo "Subdirectory: " . implode(', ', $parserOptions['subdirectory']) . "\n";
     }
     if (!empty($parserOptions['exclude'])) {
         echo "Exclude patterns: " . implode(', ', $parserOptions['exclude']) . "\n";

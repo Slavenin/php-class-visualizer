@@ -54,8 +54,6 @@ services:
       - ${OUTPUT_FOLDER_PATH}:/usr/share/nginx/html/data
       # Монтируем HTML визуализатор (опционально, для разработки)
       - ./:/usr/share/nginx/html
-    depends_on:
-      - parser
     networks:
       - dependency-network
 
